@@ -6,9 +6,9 @@ metadata:
   namespace: default
 spec:
   replicas: 1
-  revisionHistoryLimit: 1 # Règle ArgoCD : Ne garde qu'un seul ancien RS dans l'historique
+  revisionHistoryLimit: 1
   strategy:
-    type: Recreate # Coupe l'ancien pod avant de lancer le nouveau (essentiel pour économiser ta RAM)
+    type: Recreate
   selector:
     matchLabels:
       app: auth
