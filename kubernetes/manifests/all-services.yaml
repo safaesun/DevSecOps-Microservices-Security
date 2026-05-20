@@ -22,7 +22,7 @@ spec:
         runAsUser: 1000
       containers:
       - name: auth-container
-        image: 192.168.56.11:30002/library/auth:v1
+        image: 192.168.56.11/library/auth:v1
         ports:
         - containerPort: 3000
         securityContext:
@@ -31,11 +31,11 @@ spec:
             drop: ["ALL"]
         resources:
           requests:
+            memory: "32Mi"
+            cpu: "20m"
+          limits:
             memory: "64Mi"
             cpu: "50m"
-          limits:
-            memory: "128Mi"
-            cpu: "100m"
       imagePullSecrets:
       - name: harbor-registry-secret
 ---
@@ -77,7 +77,7 @@ spec:
         runAsUser: 1000
       containers:
       - name: backend-container
-        image: 192.168.56.11:30002/library/backend:v1
+        image: 192.168.56.11/library/backend:v1
         ports:
         - containerPort: 3000
         securityContext:
@@ -86,11 +86,11 @@ spec:
             drop: ["ALL"]
         resources:
           requests:
+            memory: "32Mi"
+            cpu: "20m"
+          limits:
             memory: "64Mi"
             cpu: "50m"
-          limits:
-            memory: "128Mi"
-            cpu: "100m"
       imagePullSecrets:
       - name: harbor-registry-secret
 ---
@@ -132,7 +132,7 @@ spec:
         runAsUser: 1000
       containers:
       - name: frontend-container
-        image: 192.168.56.11:30002/library/frontend:v1
+        image: 192.168.56.11/library/frontend:v1
         ports:
         - containerPort: 3000
         securityContext:
@@ -141,11 +141,11 @@ spec:
             drop: ["ALL"]
         resources:
           requests:
+            memory: "32Mi"
+            cpu: "20m"
+          limits:
             memory: "64Mi"
             cpu: "50m"
-          limits:
-            memory: "128Mi"
-            cpu: "100m"
       imagePullSecrets:
       - name: harbor-registry-secret
 ---
