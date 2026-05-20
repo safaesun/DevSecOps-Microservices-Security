@@ -8,4 +8,4 @@ app.use((req, res, next) => {
 });
 
 app.get('/', (req, res) => res.json({ service: "Backend", data: ["Networks", "Security", "DevSecOps"] }));
-app.listen(3000, () => logger("backend", "Service Backend démarré sur le port 3000"));
+app.listen(3000, () => logger("backend", "Service Backend démarré sur le port 3000"));// hi
