@@ -1,0 +1,92 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: rssp-hardened-policy
+  annotations:
+    policies.kyverno.io/description: "Politique de sécurité avancée pour le cluster de Safae"
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    # 1. Restriction du Registre Harbor
+    - name: check-harbor-registry
+      match:
+        any:
+        - resources:
+            kinds: [Pod]
+      validate:
+        message: "ACCÈS REFUSÉ : L'image doit provenir du Harbor de Safae (192.168.56.11:30002) !"
+        pattern:
+          spec:
+            containers:
+            - image: "192.168.56.11:30002/*"
+
+    # 2. Interdiction du mode Privilégié
+    - name: block-privileged-containers
+      match:
+        any:
+        - resources:
+            kinds: [Pod]
+      validate:
+        message: "SÉCURITÉ : Les conteneurs privilégiés sont strictement interdits !"
+        pattern:
+          spec:
+            containers:
+            - securityContext:
+                privileged: false
+
+    # 3. Interdiction du mode Root (Zéro Privilège)
+    - name: require-non-root
+      match:
+        any:
+        - resources:
+            kinds: [Pod]
+      validate:
+        message: "SÉCURITÉ : L'exécution en tant que ROOT est interdite !"
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+
+    # 4. Interdiction de l'accès au système de fichiers de l'hôte
+    - name: block-host-path
+      match:
+        any:
+        - resources:
+            kinds: [Pod]
+      validate:
+        message: "SÉCURITÉ : L'accès direct aux dossiers du Worker (HostPath) est interdit !"
+        pattern:
+          spec:
+            =(volumes):
+              - X(hostPath): "null"
+
+    # 5. Limitation du partage réseau
+    - name: block-host-network-port
+      match:
+        any:
+        - resources:
+            kinds: [Pod]
+      validate:
+        message: "SÉCURITÉ : Le partage du réseau de l'hôte est interdit !"
+        pattern:
+          spec:
+            hostNetwork: false
+            hostIPC: false
+            hostPID: false
+
+    # 6. Discipline des Ressources (CPU/RAM) - NOUVEAU
+    - name: check-resource-limits
+      match:
+        any:
+        - resources:
+            kinds: [Pod]
+      validate:
+        message: "DISCIPLINE : Limites CPU et Mémoire obligatoires pour la stabilité !"
+        pattern:
+          spec:
+            containers:
+            - resources:
+                limits:
+                  memory: "?*"
+                  cpu: "?*"

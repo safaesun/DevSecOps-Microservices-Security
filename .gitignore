@@ -1,0 +1,3 @@
+actions-runner/
+*.tar.gz
+cosign.key
