@@ -145,4 +145,4 @@ spec:
   ports:
     - port: 80
       targetPort: 3000
-      nodePort: 30984 # <-- Ton NodePort d'origine (44 jours d'âge) exporatiation stable
+      nodePort: 30984 # <-- Ton NodePort d'origine (44 jours d'âge) exporatiation   stable
