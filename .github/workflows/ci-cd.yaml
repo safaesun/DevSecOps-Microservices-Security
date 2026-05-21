@@ -1,0 +1,149 @@
+name: DevSecOps CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - ".github/workflows/ci-cd.yaml"
+
+permissions:
+  contents: write
+
+jobs:
+  build-scan-sign-push:
+    name: Build, Scan, SBOM, Sign, Push and Update Manifest
+    runs-on: self-hosted
+    env:
+      # Extraction de l'IP de votre adaptateur Host-Only pour Docker/Cosign
+      HARBOR_URL: "192.168.56.11"
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Semgrep SAST Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: "p/default"
+        continue-on-error: true
+
+      - name: Set short SHA
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+      - name: Verify Docker access
+        run: |
+          docker version
+          docker ps
+
+      - name: Login to Harbor
+        run: |
+          echo "$HARBOR_PASSWORD" | docker login "$HARBOR_URL" \
+            -u "$HARBOR_USERNAME" \
+            --password-stdin
+
+      - name: Install tools (Trivy, Syft, Cosign)
+        run: |
+          # Trivy
+          if ! command -v trivy >/dev/null 2>&1; then
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+          fi
+          trivy --version
+          # Syft
+          if ! command -v syft >/dev/null 2>&1; then
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin
+          fi
+          syft version
+          # Cosign
+          if ! command -v cosign >/dev/null 2>&1; then
+            curl -L https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign
+            chmod +x /usr/local/bin/cosign
+          fi
+          cosign version
+
+      - name: Restore Cosign private key
+        run: |
+          printf '%s' "${{ secrets.COSIGN_PRIVATE_KEY }}" | base64 --decode > cosign.key
+          chmod 600 cosign.key
+          ls -l cosign.key
+
+      - name: Build, scan, push, sign and attest images
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          mkdir -p reports/sbom .trivycache
+          # Adaptation : boucle uniquement sur vos 3 services existants
+          for svc in auth backend frontend; do
+            IMAGE="$HARBOR_URL/library/mon-$svc:$SHORT_SHA"
+            echo "===================================="
+            echo "🚀 Processing service: $svc"
+            echo "Image: $IMAGE"
+            echo "===================================="
+            
+            # 1. Build
+            echo "1) Build image"
+            docker build -t "$IMAGE" "./app/$svc"
+            
+            # 2. Trivy (CRITICAL only → pipeline passe)
+            echo "2) Trivy scan (CRITICAL only)"
+            trivy image \
+              --cache-dir .trivycache \
+              --no-progress \
+              --exit-code 1 \
+              --severity CRITICAL \
+              "$IMAGE"
+            
+            # 3. Push
+            echo "3) Push to Harbor"
+            docker push "$IMAGE"
+            
+            # 4. SBOM
+            echo "4) Generate SBOM with Syft"
+            syft scan "$IMAGE" -o spdx-json > "reports/sbom/mon-$svc.spdx.json"
+            
+            # 5. Digest
+            DIGEST_REF=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")
+            echo "5) Digest ref: $DIGEST_REF"
+            
+            # 6. Sign
+            echo "6) Cosign sign"
+            cosign sign --yes \
+              --key cosign.key \
+              --registry-username "$HARBOR_USERNAME" \
+              --registry-password "$HARBOR_PASSWORD" \
+              --allow-insecure-registry \
+              "$DIGEST_REF"
+            
+            # 7. Attest SBOM
+            echo "7) Cosign attest SBOM"
+            cosign attest --yes \
+              --key cosign.key \
+              --predicate "reports/sbom/mon-$svc.spdx.json" \
+              --type spdxjson \
+              --registry-username "$HARBOR_USERNAME" \
+              --registry-password "$HARBOR_PASSWORD" \
+              --allow-insecure-registry \
+              "$DIGEST_REF"
+            echo "✅ Service $svc completed"
+          done
+
+      - name: Update Kubernetes manifest image tags
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "🔄 Updating image tags to :$SHORT_SHA"
+          for svc in auth backend frontend; do
+            sed -i -E "s|(image: ${HARBOR_URL}/library/mon-${svc}:)[^[:space:]]+|\1${SHORT_SHA}|g" \
+              kubernetes/manifests/plateforme.yaml
+          done
+          echo "✅ Updated manifest:"
+          grep -E "image:" kubernetes/manifests/plateforme.yaml || echo "No image lines found"
+
+      - name: Commit and push updated manifest
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci-cd: update image tags to ${{ env.SHORT_SHA }}"
+          branch: main
+          file_pattern: kubernetes/manifests/plateforme.yaml
